@@ -8,15 +8,68 @@ import math
 import random
 import matplotlib.pyplot as plt
 
+A = [1]*240+[2]*60+[1]*300+[2]*60+[1]*60 # 定义站点每分钟的人数增长
+total_people = sum(A) # 一个站点在一天产生的总人数是固定的
+total_time = len(A) # 一天的运行时间是固定的
+D = [0.9]*3+[0.85]+[0.9]*3+[0.85]+[0.9]*4 # 定义每个站点的下车率
+cap = 50 # 定义车的总容量
+n = 50 # 定义班次数
+L = [[0] * 12] * n # 定义L(i,j) := i班车离开j站点瞬间的人数  
+W = [[0] * 12] * n # 定义W(i,j) := j站点在i班车离开瞬间的等待人数
+# S = [i for i in range(n)] # 定义每班车的发车时间（迭代单元，决策变量）
+
+def I(i,j):
+    return sum(A[k] for k in range(i,j+1))
+def d(j):
+    return D[j]
+def w(i,j):
+    if i < 0 or j < 0:
+        return 0
+    return W[i][j]
+def l(i,j):
+    if i < 0 or j < 0:
+        return 0
+    return L[i][j]
+
+def computeLandM(S):
+    def s(i):
+        return S[i]
+    # 处理0号车到达前的人数积累
+    for j in range(0,12):
+        L[0][j] = min(cap, math.floor(d(j) * l(0, j-1)) + I(0, s(0)+j))
+        W[0][j] = max(0, math.floor(d(j) * l(0, j-1)) + I(0, s(0)+j) - cap)
+
+    # 迭代
+    for i in range(1,n):
+        for j in range(0,12):
+            L[i][j] = min(cap, math.floor(d(j) * l(i, j-1)) + w(i-1, j) + I(s(i-1)+j+1, s(i)+j-1))
+            W[i][j] = max(0, math.floor(d(j) * l(i, j-1)) + w(i-1, j) + I(s(i-1)+j+1, s(i)+j-1) - cap)
+
+
 #First function to optimize
-def function1(x):
-    value = -x**2
-    return value
+def function1(S):
+    computeLandM(S)
+    def s(i):
+        return S[i]
+    obj1 = 0
+    for j in range(0,12):
+        final = w(n-1, j) + I(s(n-1)+j+1, total_time-1)
+        obj1 += total_people - final
+    return -obj1
 
 #Second function to optimize
-def function2(x):
-    value = -(x-2)**2
-    return value
+def function2(S):
+    computeLandM(S)
+    obj2 = 0
+    for j in range(0,12):
+        waiting = 0
+        for t in range(total_time):
+            if t in S:
+                waiting = w(S.index(t), j)
+            else:
+                waiting += I(t, t)
+            obj2 += waiting
+    return obj2
 
 #Function to find index of list
 def index_of(a,list):
@@ -79,34 +132,73 @@ def crowding_distance(values1, values2, front):
     distance[0] = 4444444444444444
     distance[len(front) - 1] = 4444444444444444
     for k in range(1,len(front)-1):
-        distance[k] = distance[k]+ (values1[sorted1[k+1]] - values2[sorted1[k-1]])/(max(values1)-min(values1))
+        distance[k] = distance[k]+ (values1[sorted1[k+1]] - values2[sorted1[k-1]])/(max(values1)-min(values1) + 1e5)
     for k in range(1,len(front)-1):
-        distance[k] = distance[k]+ (values1[sorted2[k+1]] - values2[sorted2[k-1]])/(max(values2)-min(values2))
+        distance[k] = distance[k]+ (values1[sorted2[k+1]] - values2[sorted2[k-1]])/(max(values2)-min(values2) + 1e5)
     return distance
 
 #Function to carry out the crossover
 def crossover(a,b):
-    r=random.random()
-    if r>0.5:
-        return mutation((a+b)/2)
-    else:
-        return mutation((a-b)/2)
+    new = []
+    combined  = list(set(a+b))
+    return sorted(random.sample(combined, n))
 
 #Function to carry out the mutation operator
 def mutation(solution):
     mutation_prob = random.random()
     if mutation_prob <1:
-        solution = min_x+(max_x-min_x)*random.random()
+        mutation_point_1 = random.randint(0,len(solution)-1)
+        mutation_point_2 = random.randint(0,len(solution)-1)
+        t = min(mutation_point_1,mutation_point_2)
+        mutation_point_2 = max(mutation_point_1,mutation_point_2)
+        mutation_point_1 = t
+
+        max_start_value = -1
+        while max_start_value < 0:
+            # 生成 n-1 个差值
+            differences = [random.randint(1, 10) for _ in range(mutation_point_2 - mutation_point_1)]
+
+            # 确定起始值的最大可能值
+            max_start_value = solution[mutation_point_2] - sum(differences)
+        
+        # 随机选择起始值
+        start_value = random.randint(0, max_start_value)
+
+        # 构建整个列表
+        random_list = [start_value]
+        for diff in differences:
+            random_list.append(random_list[-1] + diff)
+
+        solution[mutation_point_1+1:mutation_point_2] = random_list
     return solution
 
 #Main program starts here
-pop_size = 20
-max_gen = 921
+pop_size = 30
+max_gen = 100
 
 #Initialization
 min_x=-55
 max_x=55
-solution=[min_x+(max_x-min_x)*random.random() for i in range(0,pop_size)]
+solution = []
+for i in range(pop_size):
+    max_start_value = -1
+    while max_start_value < 0:
+        # 生成 n-1 个差值
+        differences = [random.randint(1, 10) for _ in range(n - 1)]
+
+        # 确定起始值的最大可能值
+        max_start_value = 705 - sum(differences)
+
+    # 随机选择起始值
+    start_value = random.randint(0, max_start_value)
+
+    # 构建整个列表
+    random_list = [start_value]
+    for diff in differences:
+        random_list.append(random_list[-1] + diff)
+
+    solution.append(random_list)
+
 gen_no=0
 while(gen_no<max_gen):
     function1_values = [function1(solution[i])for i in range(0,pop_size)]
@@ -114,7 +206,8 @@ while(gen_no<max_gen):
     non_dominated_sorted_solution = fast_non_dominated_sort(function1_values[:],function2_values[:])
     print("The best front for Generation number ",gen_no, " is")
     for valuez in non_dominated_sorted_solution[0]:
-        print(round(solution[valuez],3),end=" ")
+        print(f"[{solution[valuez][0]}...{solution[valuez][-1]}]",end=" ")
+        print(solution[valuez])
     print("\n")
     crowding_distance_values=[]
     for i in range(0,len(non_dominated_sorted_solution)):
@@ -147,9 +240,11 @@ while(gen_no<max_gen):
     gen_no = gen_no + 1
 
 #Lets plot the final front now
-function1 = [i * -1 for i in function1_values]
-function2 = [j * -1 for j in function2_values]
+function1 = [i for i in function1_values]
+function2 = [j for j in function2_values]
 plt.xlabel('Function 1', fontsize=15)
 plt.ylabel('Function 2', fontsize=15)
 plt.scatter(function1, function2)
 plt.show()
+
+
